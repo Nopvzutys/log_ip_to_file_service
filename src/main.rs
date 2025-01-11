@@ -1,5 +1,5 @@
 #[cfg(windows)]
-mod ip_to_file;
+mod service;
 
 #[cfg(windows)]
 mod utils;
@@ -73,7 +73,7 @@ fn main() -> windows_service::Result<()> {
 
     if opt.install {
         tracing::info!("Installing Service");
-        utils::install_service(
+        service::install_service(
             "ip_to_file.exe",
             SERVICE_NAME,
             SERVICE_DISPLAY_NAME,
@@ -81,17 +81,17 @@ fn main() -> windows_service::Result<()> {
         )
     } else if opt.uninstall {
         tracing::info!("Uninstalling Service");
-        utils::uninstall_service(SERVICE_NAME)
+        service::uninstall_service(SERVICE_NAME)
     } else if opt.restart {
         tracing::info!("Restarting Service");
-        utils::restart_service(SERVICE_NAME)
+        service::restart_service(SERVICE_NAME)
     } else if opt.log_file.is_some() || opt.time_delay.is_some() || opt.ip_log_file.is_some()
     {
         // No other action to take
         Ok(())
     } else {
         tracing::info!("Running Service");
-        ip_to_file::run(SERVICE_NAME, time_delay)
+        service::run(SERVICE_NAME, time_delay)
     }
 }
 

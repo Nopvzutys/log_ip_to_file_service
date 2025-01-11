@@ -3,17 +3,14 @@ use std::{
     io::Write,
     net::IpAddr,
     sync::{mpsc, LazyLock, Mutex},
-    time::Duration,
+    time::{Duration, Instant},
 };
 use windows_service::{
-    define_windows_service,
-    service::{
-        ServiceControl, ServiceControlAccept, ServiceExitCode, ServiceState, ServiceStatus,
-        ServiceType,
-    },
-    service_control_handler::{self, ServiceControlHandlerResult},
-    service_dispatcher, Result,
+    define_windows_service, service::{
+        ServiceAccess, ServiceControl, ServiceControlAccept, ServiceErrorControl, ServiceExitCode, ServiceInfo, ServiceStartType, ServiceState, ServiceStatus, ServiceType
+    }, service_control_handler::{self, ServiceControlHandlerResult}, service_dispatcher, service_manager::{ServiceManager, ServiceManagerAccess}, Result
 };
+use windows_sys::Win32::Foundation::ERROR_SERVICE_DOES_NOT_EXIST;
 
 const SERVICE_TYPE: ServiceType = ServiceType::OWN_PROCESS;
 
@@ -122,6 +119,92 @@ fn run_service() -> Result<()> {
         wait_hint: Duration::default(),
         process_id: None,
     })?;
+
+    Ok(())
+}
+
+pub fn install_service(
+    service_exe_name: &str,
+    service_name: &str,
+    display_name: &str,
+    description: &str,
+) -> windows_service::Result<()> {
+    let service_binary_path = ::std::env::current_exe()
+        .unwrap()
+        .with_file_name(service_exe_name);
+    tracing::info!("Service Binary: {}", service_binary_path.display());
+
+    tracing::info!("Connecting to Service Manager");
+    let manager_access = ServiceManagerAccess::CONNECT | ServiceManagerAccess::CREATE_SERVICE;
+    let service_manager = ServiceManager::local_computer(None::<&str>, manager_access)?;
+
+    let service_info = ServiceInfo {
+        name: OsString::from(service_name),
+        display_name: OsString::from(display_name),
+        service_type: ServiceType::OWN_PROCESS,
+        start_type: ServiceStartType::OnDemand,
+        error_control: ServiceErrorControl::Normal,
+        executable_path: service_binary_path,
+        launch_arguments: vec![],
+        dependencies: vec![],
+        account_name: None,
+        account_password: None,
+    };
+
+    tracing::info!("Create Service");
+    let service = service_manager.create_service(&service_info, ServiceAccess::CHANGE_CONFIG)?;
+    service.set_description(description)?;
+
+    tracing::info!("Service Install complete");
+
+    Ok(())
+}
+
+pub fn uninstall_service(service_name: &str) -> windows_service::Result<()> {
+    tracing::info!("Connecting to Service Manager");
+    let manager_access = ServiceManagerAccess::CONNECT;
+    let service_manager = ServiceManager::local_computer(None::<&str>, manager_access)?;
+
+    let service_access = ServiceAccess::QUERY_STATUS | ServiceAccess::STOP | ServiceAccess::DELETE;
+    let service = service_manager.open_service(service_name, service_access)?;
+
+    tracing::info!("Delete service");
+    service.delete()?;
+    if service.query_status()?.current_state != ServiceState::Stopped {
+        service.stop()?;
+    }
+    drop(service);
+
+    tracing::info!("Wait for service deletion");
+
+    let start = Instant::now();
+    let timeout = Duration::from_secs(5);
+    while start.elapsed() < timeout {
+        if let Err(windows_service::Error::Winapi(e)) =
+            service_manager.open_service(service_name, ServiceAccess::QUERY_STATUS)
+        {
+            if e.raw_os_error() == Some(ERROR_SERVICE_DOES_NOT_EXIST as i32) {
+                return Ok(());
+            }
+        }
+        std::thread::sleep(Duration::from_secs(1));
+    }
+
+    tracing::info!("Uninstalled service");
+    Ok(())
+}
+
+pub fn restart_service(service_name: &str) -> windows_service::Result<()> {
+    tracing::info!("Connecting to Service Manager");
+    let manager_access = ServiceManagerAccess::CONNECT;
+    let service_manager = ServiceManager::local_computer(None::<&str>, manager_access)?;
+
+    let service_access = ServiceAccess::QUERY_STATUS | ServiceAccess::STOP | ServiceAccess::DELETE;
+    let service = service_manager.open_service(service_name, service_access)?;
+
+    tracing::info!("Restart service");
+    service.stop()?;
+    service.start(&[std::ffi::OsStr::new("Started from Rust!")])?;
 
     Ok(())
 }
