@@ -1,0 +1,33 @@
+name: Rust
+
+on:
+  pull_request:
+    branches: [ "main" ]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+    - uses: actions/checkout@v4
+      name: 🔍 Checkout
+    - uses: actions/cache@v3
+      name: ⚡ Cache
+      with:
+        path: |
+          ~/.cargo/bin/
+          ~/.cargo/registry/index/
+          ~/.cargo/registry/cache/
+          ~/.cargo/git/db/
+          target/
+        key: ${{ runner.os }}-${{github.workflow}}-${{ hashFiles('**/Cargo.lock') }}
+    - uses: dtolnay/rust-toolchain@stable
+      name: 🔨 Install Rust
+    - name: 🔨 Build
+      run: cargo build --verbose --release
+    - name: 📚 Format Code
+      run: cargo fmt
+    - name: ✅ Clippy Check
+      run: cargo clippy --no-deps
