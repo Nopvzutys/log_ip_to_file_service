@@ -1,11 +1,11 @@
 use registry::{Hive, RegKey, Security};
-use std::fs::OpenOptions;
+use tracing_appender::rolling::{RollingFileAppender, Rotation};
+use std::path::Path;
 use tracing::level_filters::LevelFilter;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, Layer};
 use utfx::U16CString;
 
 pub fn logging(log_file_path_opt: Option<&str>) -> windows_service::Result<()> {
-    // enable console logging
     #[cfg(debug_assertions)]
     let log_level = LevelFilter::DEBUG;
     #[cfg(not(debug_assertions))]
@@ -15,23 +15,21 @@ pub fn logging(log_file_path_opt: Option<&str>) -> windows_service::Result<()> {
     let layer = tracing_subscriber::fmt::layer()
         .with_timer(tracing_subscriber::fmt::time::LocalTime::rfc_3339())
         .with_filter(log_level)
-        // Box the layer as a type-erased trait object, so that it can
-        // be pushed to the `Vec`.
         .boxed();
 
     layers.push(layer);
 
     if let Some(log_file_path) = log_file_path_opt {
-        let log_file = OpenOptions::new()
-            .write(true)
-            .truncate(true)
-            .create(true)
-            .open(log_file_path)
-            .unwrap();
+        let path = Path::new(log_file_path);
+        let dir =    path.parent().unwrap();
+        let file = path.file_name().unwrap();
+
+        let file_appender = RollingFileAppender::new(Rotation::DAILY, dir, file);
+
 
         let layer = tracing_subscriber::fmt::layer()
             .with_ansi(false)
-            .with_writer(log_file)
+            .with_writer(file_appender)
             .boxed();
 
         layers.push(layer);

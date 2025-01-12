@@ -6,14 +6,8 @@ mod utils;
 
 use clap::Parser;
 
-/*
-    TODO:
-    Trace/log file auto rotation
-    https://docs.rs/tracing-appender/latest/tracing_appender/index.html -
-*/
-
-const SERVICE_NAME: &str = "ip_on_ondrive_service";
-const SERVICE_DISPLAY_NAME: &str = "IP on File Service";
+const SERVICE_NAME: &str = "ip_to_file_service";
+const SERVICE_DISPLAY_NAME: &str = "IP to File Service";
 const SERVICE_DISCRIPTION: &str = "Windows Service to put IP list in a file for IP Discovery";
 
 #[derive(Parser, Debug)]
@@ -85,8 +79,7 @@ fn main() -> windows_service::Result<()> {
     } else if opt.restart {
         tracing::info!("Restarting Service");
         service::restart_service(SERVICE_NAME)
-    } else if opt.log_file.is_some() || opt.time_delay.is_some() || opt.ip_log_file.is_some()
-    {
+    } else if opt.log_file.is_some() || opt.time_delay.is_some() || opt.ip_log_file.is_some() {
         // No other action to take
         Ok(())
     } else {
