@@ -13,7 +13,7 @@ readme = "README.md"
 rust-version = "1.83.0"
 
 [dependencies.windows-service]
-version = "0.7.0"
+version = "0.8.0"
 default-features = false
 
 [dependencies.clap]
