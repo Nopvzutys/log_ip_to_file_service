@@ -6,9 +6,15 @@ use std::{
     time::{Duration, Instant},
 };
 use windows_service::{
-    define_windows_service, service::{
-        ServiceAccess, ServiceControl, ServiceControlAccept, ServiceErrorControl, ServiceExitCode, ServiceInfo, ServiceStartType, ServiceState, ServiceStatus, ServiceType
-    }, service_control_handler::{self, ServiceControlHandlerResult}, service_dispatcher, service_manager::{ServiceManager, ServiceManagerAccess}, Result
+    define_windows_service,
+    service::{
+        ServiceAccess, ServiceControl, ServiceControlAccept, ServiceErrorControl, ServiceExitCode,
+        ServiceInfo, ServiceStartType, ServiceState, ServiceStatus, ServiceType,
+    },
+    service_control_handler::{self, ServiceControlHandlerResult},
+    service_dispatcher,
+    service_manager::{ServiceManager, ServiceManagerAccess},
+    Result,
 };
 use windows_sys::Win32::Foundation::ERROR_SERVICE_DOES_NOT_EXIST;
 

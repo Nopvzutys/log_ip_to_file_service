@@ -23,3 +23,6 @@ Start-Service ip_to_file_service
 Stop-Service ip_to_file_service
 ip_to_file -u
 ```
+
+## Reg Key for Service
+- HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Services\ip_to_file_service
