@@ -1,9 +1,7 @@
-use registry::{Hive, RegKey, Security};
-use tracing_appender::rolling::{RollingFileAppender, Rotation};
 use std::path::Path;
 use tracing::level_filters::LevelFilter;
+use tracing_appender::rolling::{RollingFileAppender, Rotation};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, Layer};
-use utfx::U16CString;
 
 pub fn logging(log_file_path_opt: Option<&str>) -> windows_service::Result<()> {
     #[cfg(debug_assertions)]
@@ -21,11 +19,10 @@ pub fn logging(log_file_path_opt: Option<&str>) -> windows_service::Result<()> {
 
     if let Some(log_file_path) = log_file_path_opt {
         let path = Path::new(log_file_path);
-        let dir =    path.parent().unwrap();
+        let dir = path.parent().unwrap();
         let file = path.file_name().unwrap();
 
         let file_appender = RollingFileAppender::new(Rotation::DAILY, dir, file);
-
 
         let layer = tracing_subscriber::fmt::layer()
             .with_ansi(false)
@@ -40,34 +37,35 @@ pub fn logging(log_file_path_opt: Option<&str>) -> windows_service::Result<()> {
     Ok(())
 }
 
-fn get_service_reg_key(service_name: &str) -> windows_service::Result<RegKey> {
+fn get_service_reg_key(service_name: &str) -> windows_service::Result<windows_registry::Key> {
     let regpath = format!("SYSTEM\\CurrentControlSet\\Services\\{}", service_name);
 
-    let regkey = Hive::LocalMachine.open(&regpath, Security::Write | Security::Read);
-
-    match regkey {
-        Ok(r) => Ok(r),
-        Err(e) => match e {
-            registry::key::Error::InvalidNul(_) => Err(windows_service::Error::Winapi(
-                std::io::Error::from_raw_os_error(87),
-            )),
-            registry::key::Error::NotFound(_, n) => Err(windows_service::Error::Winapi(n)),
-            registry::key::Error::PermissionDenied(_, n) => Err(windows_service::Error::Winapi(n)),
-            registry::key::Error::Unknown(_, n) => Err(windows_service::Error::Winapi(n)),
-            _ => Err(windows_service::Error::Winapi(
-                std::io::Error::from_raw_os_error(87),
-            )),
-        },
+    match windows_registry::LOCAL_MACHINE
+        .options()
+        .read()
+        .write()
+        .open(regpath)
+    {
+        Err(e) => {
+            let h = e.code().0;
+            tracing::error!("get_service_reg_key failed {}", &e.message());
+            Err(windows_service::Error::Winapi(
+                std::io::Error::from_raw_os_error(h),
+            ))
+        }
+        Ok(k) => Ok(k),
     }
 }
 
 pub fn get_log_path(service_name: &str) -> windows_service::Result<Option<String>> {
     if let Ok(regkey) = get_service_reg_key(service_name) {
-        if let Ok(registry::Data::String(s)) = regkey.value("log") {
-            return Ok(Some(s.to_string().unwrap()));
+        if let Ok(s) = regkey.get_string("log") {
+            return Ok(Some(s));
         }
     }
-    Ok(None)
+    Err(windows_service::Error::Winapi(
+        std::io::Error::last_os_error(),
+    ))
 }
 
 pub fn set_default_log_path(service_name: &str) -> windows_service::Result<()> {
@@ -82,26 +80,36 @@ pub fn set_default_log_path(service_name: &str) -> windows_service::Result<()> {
 pub fn set_log_path(service_name: &str, log_file_path: &str) -> windows_service::Result<()> {
     let regkey = get_service_reg_key(service_name)?;
 
-    let value = registry::Data::String(U16CString::from_str(log_file_path).unwrap());
-
-    regkey.set_value("log", &value).unwrap();
-
-    Ok(())
+    match regkey.set_string("log", log_file_path) {
+        Err(e) => {
+            let h: i32 = e.code().0;
+            eprintln!("set_log_path failed {}", &e.message());
+            Err(windows_service::Error::Winapi(
+                std::io::Error::from_raw_os_error(h),
+            ))
+        }
+        Ok(()) => Ok(()),
+    }
 }
 
 pub fn set_time_delay(service_name: &str, time_delay: u64) -> windows_service::Result<()> {
     let regkey = get_service_reg_key(service_name)?;
 
-    let value = registry::Data::U64(time_delay);
-
-    regkey.set_value("time_delay", &value).unwrap();
-
-    Ok(())
+    match regkey.set_u64("time_delay", time_delay) {
+        Err(e) => {
+            let h = e.code().0;
+            eprintln!("set_time_delay failed {}", &e.message());
+            Err(windows_service::Error::Winapi(
+                std::io::Error::from_raw_os_error(h),
+            ))
+        }
+        Ok(()) => Ok(()),
+    }
 }
 
 pub fn get_time_delay(service_name: &str) -> windows_service::Result<Option<u64>> {
     if let Ok(regkey) = get_service_reg_key(service_name) {
-        if let Ok(registry::Data::U64(s)) = regkey.value("time_delay") {
+        if let Ok(s) = regkey.get_u64("time_delay") {
             return Ok(Some(s));
         }
     }
@@ -110,8 +118,8 @@ pub fn get_time_delay(service_name: &str) -> windows_service::Result<Option<u64>
 
 pub fn get_ip_log_path(service_name: &str) -> windows_service::Result<Option<String>> {
     if let Ok(regkey) = get_service_reg_key(service_name) {
-        if let Ok(registry::Data::String(s)) = regkey.value("ip_log") {
-            return Ok(Some(s.to_string().unwrap()));
+        if let Ok(s) = regkey.get_string("ip_log") {
+            return Ok(Some(s));
         }
     }
     Ok(None)
@@ -127,11 +135,18 @@ pub fn set_default_ip_log_path(service_name: &str) -> windows_service::Result<()
 }
 
 pub fn set_ip_log_path(service_name: &str, log_file_path: &str) -> windows_service::Result<()> {
+    tracing::info!("set_ip_log_path++");
+
     let regkey = get_service_reg_key(service_name)?;
 
-    let value = registry::Data::String(U16CString::from_str(log_file_path).unwrap());
-
-    regkey.set_value("ip_log", &value).unwrap();
-
-    Ok(())
+    match regkey.set_string("ip_log", log_file_path) {
+        Err(e) => {
+            let h = e.code().0;
+            tracing::error!("set_ip_log_path failed {}", &e.message());
+            Err(windows_service::Error::Winapi(
+                std::io::Error::from_raw_os_error(h),
+            ))
+        }
+        Ok(()) => Ok(()),
+    }
 }
