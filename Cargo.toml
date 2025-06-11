@@ -40,7 +40,7 @@ default-features = false
 features = ["ansi", "fmt", "smallvec", "std", "tracing-log", "local-time"]
 
 [dependencies.windows-sys]
-version = "0.59.0"
+version = "0.60.1"
 default-features=false
 features = ["Win32_Foundation"]
 
