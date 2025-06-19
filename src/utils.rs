@@ -48,7 +48,8 @@ fn get_service_reg_key(service_name: &str) -> windows_service::Result<windows_re
     {
         Err(e) => {
             let h = e.code().0;
-            tracing::error!("get_service_reg_key failed {}", &e.message());
+            eprintln!("get_service_reg_key failed {}", &e.message());
+
             Err(windows_service::Error::Winapi(
                 std::io::Error::from_raw_os_error(h),
             ))
@@ -78,7 +79,15 @@ pub fn set_default_log_path(service_name: &str) -> windows_service::Result<()> {
 }
 
 pub fn set_log_path(service_name: &str, log_file_path: &str) -> windows_service::Result<()> {
-    let regkey = get_service_reg_key(service_name)?;
+    let regkey = get_service_reg_key(service_name);
+    if let Err(e) = regkey {
+        eprintln!("set_log_path failed {}", e);
+        return Err(windows_service::Error::Winapi(std::io::Error::new(
+            std::io::ErrorKind::Other,
+            e,
+        )));
+    }
+    let regkey = regkey.unwrap();
 
     match regkey.set_string("log", log_file_path) {
         Err(e) => {
