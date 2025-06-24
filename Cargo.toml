@@ -45,7 +45,7 @@ default-features=false
 features = ["Win32_Foundation"]
 
 [dependencies.windows-registry]
-version = "0.5.2"
+version = "0.5.3"
 default-features = false
 
 [dependencies.utfx]
