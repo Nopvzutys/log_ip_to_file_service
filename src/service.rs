@@ -29,7 +29,7 @@ pub fn run(service_name: &str, poll_rate: Option<u64>) -> Result<()> {
         let mut lock = match SERVICE_NAME.lock() {
             Ok(l) => l,
             Err(e) => {
-                tracing::error!("Failed to lock SERVICE_NAME: {}", e);
+                tracing::error!("Failed to lock SERVICE_NAME in 'run': {}", e);
                 return Err(windows_service::Error::Winapi(std::io::Error::other(
                     e.to_string(),
                 )));
@@ -42,7 +42,7 @@ pub fn run(service_name: &str, poll_rate: Option<u64>) -> Result<()> {
         let mut lock = match POLL_RATE.lock() {
             Ok(l) => l,
             Err(e) => {
-                tracing::error!("Failed to lock POLL_RATE: {}", e);
+                tracing::error!("Failed to lock POLL_RATE in 'run': {}", e);
                 return Err(windows_service::Error::Winapi(std::io::Error::other(
                     e.to_string(),
                 )));
@@ -82,7 +82,15 @@ fn run_service() -> Result<()> {
     };
     let service_name;
     {
-        let lock = SERVICE_NAME.lock().unwrap();
+        let lock = match SERVICE_NAME.lock() {
+            Ok(l) => l,
+            Err(e) => {
+                tracing::error!("Failed to lock SERVICE_NAME in 'run_service': {}", e);
+                return Err(windows_service::Error::Winapi(std::io::Error::other(
+                    e.to_string(),
+                )));
+            }
+        };
         service_name = lock.clone();
     }
     let status_handle = service_control_handler::register(&service_name, event_handler)?;
@@ -126,7 +134,20 @@ fn run_service() -> Result<()> {
             file.write_all(content.as_bytes()).unwrap();
         }
 
-        match shutdown_rx.recv_timeout(Duration::from_secs(*POLL_RATE.lock().unwrap())) {
+        let poll_rate = {
+            let lock = match POLL_RATE.lock() {
+                Ok(l) => l,
+                Err(e) => {
+                    tracing::error!("Failed to lock POLL_RATE in 'run_service': {}", e);
+                    return Err(windows_service::Error::Winapi(std::io::Error::other(
+                        e.to_string(),
+                    )));
+                }
+            };
+            *lock
+        };
+
+        match shutdown_rx.recv_timeout(Duration::from_secs(poll_rate)) {
             Ok(_) | Err(mpsc::RecvTimeoutError::Disconnected) => break,
             Err(mpsc::RecvTimeoutError::Timeout) => (),
         };
