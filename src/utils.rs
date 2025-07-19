@@ -19,8 +19,26 @@ pub fn logging(log_file_path_opt: Option<&str>) -> windows_service::Result<()> {
 
     if let Some(log_file_path) = log_file_path_opt {
         let path = Path::new(log_file_path);
-        let dir = path.parent().unwrap();
-        let file = path.file_name().unwrap();
+        let dir = match path.parent() {
+            Some(p) => p,
+            None => {
+                eprintln!("Invalid log file path: {}", log_file_path);
+                return Err(windows_service::Error::Winapi(std::io::Error::new(
+                    std::io::ErrorKind::InvalidInput,
+                    "Invalid log file path",
+                )));
+            }
+        };
+        let file = match path.file_name() {
+            Some(f) => f,
+            None => {
+                eprintln!("Invalid log file name: {}", log_file_path);
+                return Err(windows_service::Error::Winapi(std::io::Error::new(
+                    std::io::ErrorKind::InvalidInput,
+                    "Invalid log file name",
+                )));
+            }
+        };
 
         let file_appender = RollingFileAppender::new(Rotation::DAILY, dir, file);
 
@@ -80,14 +98,13 @@ pub fn set_default_log_path(service_name: &str) -> windows_service::Result<()> {
 
 pub fn set_log_path(service_name: &str, log_file_path: &str) -> windows_service::Result<()> {
     let regkey = get_service_reg_key(service_name);
-    if let Err(e) = regkey {
-        eprintln!("set_log_path failed {}", e);
-        return Err(windows_service::Error::Winapi(std::io::Error::new(
-            std::io::ErrorKind::Other,
-            e,
-        )));
-    }
-    let regkey = regkey.unwrap();
+    let regkey = match regkey {
+        Ok(k) => k,
+        Err(e) => {
+            eprintln!("set_log_path failed {}", e);
+            return Err(windows_service::Error::Winapi(std::io::Error::other(e)));
+        }
+    };
 
     match regkey.set_string("log", log_file_path) {
         Err(e) => {
@@ -135,9 +152,9 @@ pub fn get_ip_log_path(service_name: &str) -> windows_service::Result<Option<Str
 }
 
 pub fn set_default_ip_log_path(service_name: &str) -> windows_service::Result<()> {
-    if get_log_path(service_name).is_err() {
+    if get_ip_log_path(service_name).is_err() {
         let log_file_path = format!("{}.ip_log.txt", service_name);
-        set_log_path(service_name, &log_file_path)?;
+        set_ip_log_path(service_name, &log_file_path)?;
     }
 
     Ok(())

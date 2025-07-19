@@ -24,14 +24,31 @@ static SERVICE_NAME: LazyLock<Mutex<String>> = LazyLock::new(|| Mutex::new(Strin
 static POLL_RATE: LazyLock<Mutex<u64>> = LazyLock::new(|| Mutex::new(15 * 60));
 
 pub fn run(service_name: &str, poll_rate: Option<u64>) -> Result<()> {
+    tracing::info!("Running service: {}", service_name);
     {
-        let mut lock = SERVICE_NAME.lock().unwrap();
+        let mut lock = match SERVICE_NAME.lock() {
+            Ok(l) => l,
+            Err(e) => {
+                tracing::error!("Failed to lock SERVICE_NAME in 'run': {}", e);
+                return Err(windows_service::Error::Winapi(std::io::Error::other(
+                    e.to_string(),
+                )));
+            }
+        };
         *lock = service_name.to_owned();
     }
 
-    if poll_rate.is_some() {
-        let mut lock = POLL_RATE.lock().unwrap();
-        *lock = poll_rate.unwrap();
+    if let Some(poll_rate) = poll_rate {
+        let mut lock = match POLL_RATE.lock() {
+            Ok(l) => l,
+            Err(e) => {
+                tracing::error!("Failed to lock POLL_RATE in 'run': {}", e);
+                return Err(windows_service::Error::Winapi(std::io::Error::other(
+                    e.to_string(),
+                )));
+            }
+        };
+        *lock = poll_rate;
     }
 
     service_dispatcher::start(service_name, ffi_service_main)
@@ -51,12 +68,18 @@ fn run_service() -> Result<()> {
         match control_event {
             ServiceControl::Interrogate => ServiceControlHandlerResult::NoError,
             ServiceControl::Stop => {
-                shutdown_tx.send(()).unwrap();
+                if let Err(e) = shutdown_tx.send(()) {
+                    tracing::error!("Failed to send shutdown signal: {}", e);
+                    return ServiceControlHandlerResult::Other(1);
+                }
                 ServiceControlHandlerResult::NoError
             }
             ServiceControl::UserEvent(code) => {
                 if code.to_raw() == 130 {
-                    shutdown_tx.send(()).unwrap();
+                    if let Err(e) = shutdown_tx.send(()) {
+                        tracing::error!("Failed to send shutdown signal: {}", e);
+                        return ServiceControlHandlerResult::Other(2);
+                    }
                 }
                 ServiceControlHandlerResult::NoError
             }
@@ -65,7 +88,15 @@ fn run_service() -> Result<()> {
     };
     let service_name;
     {
-        let lock = SERVICE_NAME.lock().unwrap();
+        let lock = match SERVICE_NAME.lock() {
+            Ok(l) => l,
+            Err(e) => {
+                tracing::error!("Failed to lock SERVICE_NAME in 'run_service': {}", e);
+                return Err(windows_service::Error::Winapi(std::io::Error::other(
+                    e.to_string(),
+                )));
+            }
+        };
         service_name = lock.clone();
     }
     let status_handle = service_control_handler::register(&service_name, event_handler)?;
@@ -84,7 +115,16 @@ fn run_service() -> Result<()> {
     loop {
         let mut ip_addrs: Vec<IpAddr> = vec![];
         let mut keep_ip_addrs: Vec<IpAddr> = vec![];
-        for adapter in ipconfig::get_adapters().unwrap() {
+
+        let adapters = match ipconfig::get_adapters() {
+            Ok(adapters) => adapters,
+            Err(e) => {
+                tracing::error!("Failed to get network adapters: {}", e);
+                return Err(windows_service::Error::Winapi(std::io::Error::other(e)));
+            }
+        };
+
+        for adapter in adapters {
             ip_addrs.extend(adapter.ip_addresses().iter());
         }
         ip_addrs.sort();
@@ -102,14 +142,56 @@ fn run_service() -> Result<()> {
         }
 
         {
-            let lock = SERVICE_NAME.lock().unwrap();
-            let odpath = super::utils::get_ip_log_path(&lock)?.unwrap();
-            let mut file = std::fs::File::create(&odpath).unwrap();
+            let lock = match SERVICE_NAME.lock() {
+                Ok(l) => l,
+                Err(e) => {
+                    tracing::error!("Failed to lock SERVICE_NAME in 'run_service' loop: {}", e);
+                    return Err(windows_service::Error::Winapi(std::io::Error::other(
+                        e.to_string(),
+                    )));
+                }
+            };
+
+            let odpath = match super::utils::get_ip_log_path(&lock)? {
+                Some(path) => path,
+                None => {
+                    tracing::error!("No IP log path set for service: {}", lock);
+                    return Err(windows_service::Error::Winapi(std::io::Error::other(
+                        "No IP log path set",
+                    )));
+                }
+            };
+
+            let mut file = match std::fs::File::create(&odpath) {
+                Ok(f) => f,
+                Err(e) => {
+                    tracing::error!("Failed to create log file {}: {}", odpath, e);
+                    return Err(windows_service::Error::Winapi(std::io::Error::other(e)));
+                }
+            };
+
             let content = format!("{:#?}", &ip_addr_hist);
-            file.write_all(content.as_bytes()).unwrap();
+
+            if let Err(e) = file.write_all(content.as_bytes()) {
+                tracing::error!("Failed to write to log file {}: {}", odpath, e);
+                return Err(windows_service::Error::Winapi(std::io::Error::other(e)));
+            }
         }
 
-        match shutdown_rx.recv_timeout(Duration::from_secs(*POLL_RATE.lock().unwrap())) {
+        let poll_rate = {
+            let lock = match POLL_RATE.lock() {
+                Ok(l) => l,
+                Err(e) => {
+                    tracing::error!("Failed to lock POLL_RATE in 'run_service': {}", e);
+                    return Err(windows_service::Error::Winapi(std::io::Error::other(
+                        e.to_string(),
+                    )));
+                }
+            };
+            *lock
+        };
+
+        match shutdown_rx.recv_timeout(Duration::from_secs(poll_rate)) {
             Ok(_) | Err(mpsc::RecvTimeoutError::Disconnected) => break,
             Err(mpsc::RecvTimeoutError::Timeout) => (),
         };
@@ -135,9 +217,15 @@ pub fn install_service(
     display_name: &str,
     description: &str,
 ) -> windows_service::Result<()> {
-    let service_binary_path = ::std::env::current_exe()
-        .unwrap()
-        .with_file_name(service_exe_name);
+    let service_binary_path = match std::env::current_exe() {
+        Ok(path) => path,
+        Err(e) => {
+            tracing::error!("Failed to get current executable path: {}", e);
+            return Err(windows_service::Error::Winapi(std::io::Error::other(e)));
+        }
+    };
+    let service_binary_path = service_binary_path.with_file_name(service_exe_name);
+
     tracing::info!("Service Binary: {}", service_binary_path.display());
 
     tracing::info!("Connecting to Service Manager");
