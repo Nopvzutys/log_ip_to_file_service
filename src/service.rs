@@ -68,12 +68,18 @@ fn run_service() -> Result<()> {
         match control_event {
             ServiceControl::Interrogate => ServiceControlHandlerResult::NoError,
             ServiceControl::Stop => {
-                shutdown_tx.send(()).unwrap();
+                if let Err(e) = shutdown_tx.send(()) {
+                    tracing::error!("Failed to send shutdown signal: {}", e);
+                    return ServiceControlHandlerResult::Other(1);
+                }
                 ServiceControlHandlerResult::NoError
             }
             ServiceControl::UserEvent(code) => {
                 if code.to_raw() == 130 {
-                    shutdown_tx.send(()).unwrap();
+                    if let Err(e) = shutdown_tx.send(()) {
+                        tracing::error!("Failed to send shutdown signal: {}", e);
+                        return ServiceControlHandlerResult::Other(2);
+                    }
                 }
                 ServiceControlHandlerResult::NoError
             }
