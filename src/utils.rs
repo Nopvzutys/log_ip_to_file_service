@@ -135,9 +135,9 @@ pub fn get_ip_log_path(service_name: &str) -> windows_service::Result<Option<Str
 }
 
 pub fn set_default_ip_log_path(service_name: &str) -> windows_service::Result<()> {
-    if get_log_path(service_name).is_err() {
+    if get_ip_log_path(service_name).is_err() {
         let log_file_path = format!("{}.ip_log.txt", service_name);
-        set_log_path(service_name, &log_file_path)?;
+        set_ip_log_path(service_name, &log_file_path)?;
     }
 
     Ok(())
