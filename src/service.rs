@@ -109,7 +109,16 @@ fn run_service() -> Result<()> {
     loop {
         let mut ip_addrs: Vec<IpAddr> = vec![];
         let mut keep_ip_addrs: Vec<IpAddr> = vec![];
-        for adapter in ipconfig::get_adapters().unwrap() {
+
+        let adapters = match ipconfig::get_adapters() {
+            Ok(adapters) => adapters,
+            Err(e) => {
+                tracing::error!("Failed to get network adapters: {}", e);
+                return Err(windows_service::Error::Winapi(std::io::Error::other(e)));
+            }
+        };
+
+        for adapter in adapters {
             ip_addrs.extend(adapter.ip_addresses().iter());
         }
         ip_addrs.sort();
@@ -127,11 +136,40 @@ fn run_service() -> Result<()> {
         }
 
         {
-            let lock = SERVICE_NAME.lock().unwrap();
-            let odpath = super::utils::get_ip_log_path(&lock)?.unwrap();
-            let mut file = std::fs::File::create(&odpath).unwrap();
+            let lock = match SERVICE_NAME.lock() {
+                Ok(l) => l,
+                Err(e) => {
+                    tracing::error!("Failed to lock SERVICE_NAME in 'run_service' loop: {}", e);
+                    return Err(windows_service::Error::Winapi(std::io::Error::other(
+                        e.to_string(),
+                    )));
+                }
+            };
+
+            let odpath = match super::utils::get_ip_log_path(&lock)? {
+                Some(path) => path,
+                None => {
+                    tracing::error!("No IP log path set for service: {}", lock);
+                    return Err(windows_service::Error::Winapi(std::io::Error::other(
+                        "No IP log path set",
+                    )));
+                }
+            };
+
+            let mut file = match std::fs::File::create(&odpath) {
+                Ok(f) => f,
+                Err(e) => {
+                    tracing::error!("Failed to create log file {}: {}", odpath, e);
+                    return Err(windows_service::Error::Winapi(std::io::Error::other(e)));
+                }
+            };
+
             let content = format!("{:#?}", &ip_addr_hist);
-            file.write_all(content.as_bytes()).unwrap();
+
+            if let Err(e) = file.write_all(content.as_bytes()) {
+                tracing::error!("Failed to write to log file {}: {}", odpath, e);
+                return Err(windows_service::Error::Winapi(std::io::Error::other(e)));
+            }
         }
 
         let poll_rate = {
@@ -173,9 +211,15 @@ pub fn install_service(
     display_name: &str,
     description: &str,
 ) -> windows_service::Result<()> {
-    let service_binary_path = ::std::env::current_exe()
-        .unwrap()
-        .with_file_name(service_exe_name);
+    let service_binary_path = match std::env::current_exe() {
+        Ok(path) => path,
+        Err(e) => {
+            tracing::error!("Failed to get current executable path: {}", e);
+            return Err(windows_service::Error::Winapi(std::io::Error::other(e)));
+        }
+    };
+    let service_binary_path = service_binary_path.with_file_name(service_exe_name);
+
     tracing::info!("Service Binary: {}", service_binary_path.display());
 
     tracing::info!("Connecting to Service Manager");
