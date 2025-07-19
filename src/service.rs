@@ -24,14 +24,31 @@ static SERVICE_NAME: LazyLock<Mutex<String>> = LazyLock::new(|| Mutex::new(Strin
 static POLL_RATE: LazyLock<Mutex<u64>> = LazyLock::new(|| Mutex::new(15 * 60));
 
 pub fn run(service_name: &str, poll_rate: Option<u64>) -> Result<()> {
+    tracing::info!("Running service: {}", service_name);
     {
-        let mut lock = SERVICE_NAME.lock().unwrap();
+        let mut lock = match SERVICE_NAME.lock() {
+            Ok(l) => l,
+            Err(e) => {
+                tracing::error!("Failed to lock SERVICE_NAME: {}", e);
+                return Err(windows_service::Error::Winapi(std::io::Error::other(
+                    e.to_string(),
+                )));
+            }
+        };
         *lock = service_name.to_owned();
     }
 
-    if poll_rate.is_some() {
-        let mut lock = POLL_RATE.lock().unwrap();
-        *lock = poll_rate.unwrap();
+    if let Some(poll_rate) = poll_rate {
+        let mut lock = match POLL_RATE.lock() {
+            Ok(l) => l,
+            Err(e) => {
+                tracing::error!("Failed to lock POLL_RATE: {}", e);
+                return Err(windows_service::Error::Winapi(std::io::Error::other(
+                    e.to_string(),
+                )));
+            }
+        };
+        *lock = poll_rate;
     }
 
     service_dispatcher::start(service_name, ffi_service_main)
