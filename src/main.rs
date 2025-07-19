@@ -43,10 +43,7 @@ fn main() -> windows_service::Result<()> {
     if let Err(e) = utils::set_default_log_path(SERVICE_NAME) {
         if !opt.install {
             eprintln!("Error setting default log path: {} {}", SERVICE_NAME, e);
-            return Err(windows_service::Error::Winapi(std::io::Error::new(
-                std::io::ErrorKind::Other,
-                e,
-            )));
+            return Err(windows_service::Error::Winapi(std::io::Error::other(e)));
         }
     }
     if let Some(log_file_path) = opt.log_file.clone() {
@@ -56,10 +53,7 @@ fn main() -> windows_service::Result<()> {
                     "Error setting log path: {} {} {}",
                     SERVICE_NAME, &log_file_path, e
                 );
-                return Err(windows_service::Error::Winapi(std::io::Error::new(
-                    std::io::ErrorKind::Other,
-                    e,
-                )));
+                return Err(windows_service::Error::Winapi(std::io::Error::other(e)));
             }
         }
     }
@@ -69,10 +63,7 @@ fn main() -> windows_service::Result<()> {
     if let Err(e) = utils::set_default_ip_log_path(SERVICE_NAME) {
         if !opt.install {
             eprintln!("Error setting default ip log path: {} {}", SERVICE_NAME, e);
-            return Err(windows_service::Error::Winapi(std::io::Error::new(
-                std::io::ErrorKind::Other,
-                e,
-            )));
+            return Err(windows_service::Error::Winapi(std::io::Error::other(e)));
         }
     }
     if let Some(log_file_path) = opt.ip_log_file.clone() {
@@ -83,10 +74,7 @@ fn main() -> windows_service::Result<()> {
                     "Error setting ip log path: {} {} {}",
                     SERVICE_NAME, &log_file_path, e
                 );
-                return Err(windows_service::Error::Winapi(std::io::Error::new(
-                    std::io::ErrorKind::Other,
-                    e,
-                )));
+                return Err(windows_service::Error::Winapi(std::io::Error::other(e)));
             }
         }
     }
@@ -107,28 +95,24 @@ fn main() -> windows_service::Result<()> {
         if let Err(e) = utils::set_time_delay(SERVICE_NAME, td) {
             if !opt.install {
                 eprintln!("Error setting time delay: {} {} {}", SERVICE_NAME, td, e);
-                return Err(windows_service::Error::Winapi(std::io::Error::new(
-                    std::io::ErrorKind::Other,
-                    e,
-                )));
+                return Err(windows_service::Error::Winapi(std::io::Error::other(e)));
             }
         }
     }
 
     println!("Getting time delay");
     let time_delay_res = utils::get_time_delay(SERVICE_NAME);
-    let mut time_delay = None;
-    if let Err(e) = time_delay_res {
-        if !opt.install {
-            eprintln!("Error getting time delay: {} {}", SERVICE_NAME, e);
-            return Err(windows_service::Error::Winapi(std::io::Error::new(
-                std::io::ErrorKind::Other,
-                e,
-            )));
+    let time_delay = match time_delay_res {
+        Ok(result) => result,
+        Err(e) => {
+            if !opt.install {
+                eprintln!("Error getting time delay: {} {}", SERVICE_NAME, e);
+                return Err(windows_service::Error::Winapi(std::io::Error::other(e)));
+            } else {
+                None
+            }
         }
-    } else {
-        time_delay = time_delay_res.unwrap();
-    }
+    };
 
     println!("Logging");
     if let Err(e) = utils::logging(log_path) {

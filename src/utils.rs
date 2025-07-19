@@ -82,10 +82,7 @@ pub fn set_log_path(service_name: &str, log_file_path: &str) -> windows_service:
     let regkey = get_service_reg_key(service_name);
     if let Err(e) = regkey {
         eprintln!("set_log_path failed {}", e);
-        return Err(windows_service::Error::Winapi(std::io::Error::new(
-            std::io::ErrorKind::Other,
-            e,
-        )));
+        return Err(windows_service::Error::Winapi(std::io::Error::other(e)));
     }
     let regkey = regkey.unwrap();
 
